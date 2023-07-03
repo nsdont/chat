@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -416,7 +417,19 @@ func (h *ChatHandler) chatStream(w http.ResponseWriter, chatSession sqlc_queries
 		if answer_id == "" {
 			answer_id = strings.TrimPrefix(response.ID, "chatcmpl-")
 		}
-		if strings.HasSuffix(delta, "\n") || len(answer) < 200 {
+		perWordStreamLimitStr := os.Getenv("PER_WORD_STREAM_LIMIT")
+
+		if perWordStreamLimitStr == "" {
+			perWordStreamLimitStr = "200"
+		}
+
+		perWordStreamLimit, err := strconv.Atoi(perWordStreamLimitStr)
+		if err != nil {
+			RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("per word stream limit error: %v", err), nil)
+			return "", "", true
+		}
+
+		if strings.HasSuffix(delta, "\n") || len(answer) < perWordStreamLimit {
 			response.Choices[0].Delta.Content = answer
 			data, _ := json.Marshal(response)
 			fmt.Fprintf(w, "data: %v\n\n", string(data))
@@ -458,7 +471,7 @@ func (h *ChatHandler) CompletionStream(w http.ResponseWriter, chatSession sqlc_q
 
 	N := int(chatSession.N)
 	req := openai.CompletionRequest{
-		Model:       chatSession.Model,
+		Model: chatSession.Model,
 		// MaxTokens:   maxOutputToken,
 		Temperature: float32(chatSession.Temperature),
 		TopP:        float32(chatSession.TopP),
@@ -840,8 +853,8 @@ func NewChatCompletionRequest(chatSession sqlc_queries.ChatSession, chat_compele
 	// max - input = max possible output
 	//maxOutputToken := int(chatSession.MaxTokens - totalInputToken) - 500 // offset
 	openai_req := openai.ChatCompletionRequest{
-		Model:       chatSession.Model,
-		Messages:    openai_message,
+		Model:    chatSession.Model,
+		Messages: openai_message,
 		//MaxTokens:   maxOutputToken,
 		Temperature: float32(chatSession.Temperature),
 		TopP:        float32(chatSession.TopP),
